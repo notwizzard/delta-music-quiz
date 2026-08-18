@@ -3,8 +3,10 @@
 cd "$(dirname "$0")" || exit 1
 
 if [ ! -x ".venv/bin/dmq" ]; then
-  echo "Похоже, программа ещё не установлена."
-  echo "Открой Терминал в этой папке и выполни: ./install.command"
+  echo
+  echo "  Студия ещё не установлена."
+  echo "  Закрой это окно и запусти двойным кликом «install.command» из этой же папки."
+  echo
   read -r -p "Нажми Enter, чтобы закрыть окно."
   exit 1
 fi
