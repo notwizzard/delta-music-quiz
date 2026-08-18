@@ -128,7 +128,6 @@ def build_simple_pack(client, tracks):
             "answer": f"Ответ {index + 1}",
             "answerVariantId": original["id"],
             "comment": "",
-            "reveal": [],
         })
 
     response = client.put("/api/pack", json={
@@ -140,14 +139,30 @@ def build_simple_pack(client, tracks):
     return response.get_json()
 
 
-def test_saving_pack_fills_reveal_steps(client, tracks):
+def test_saving_pack_keeps_everything(client, tracks):
     saved = build_simple_pack(client, tracks)
     assert saved["problems"] == []
 
-    steps = saved["pack"]["themes"][0]["questions"][0]["reveal"]
-    assert len(steps) >= 2, "шаги раскрытия должны подставиться автоматически"
-    assert steps == sorted(steps), "шаги обязаны возрастать"
-    assert steps[-1] == pytest.approx(8, abs=0.3), "последний шаг открывает всю заготовку"
+    question = saved["pack"]["themes"][0]["questions"][0]
+    assert question["answer"] == "Ответ 1"
+    assert question["variantId"] and question["answerVariantId"]
+
+
+def test_old_pack_with_reveal_steps_still_loads(client, tracks):
+    """Паки, сделанные до перехода на обычный плеер, обязаны открываться."""
+    upload(client, tracks, ["alpha"])
+    library = client.get("/api/state").get_json()["library"]
+    original = next(v for v in library[0]["variants"] if v["kind"] == "source")
+
+    response = client.put("/api/pack", json={
+        "title": "Старый пак", "teams": ["А", "Б"],
+        "themes": [{"title": "Т", "questions": [{
+            "price": 100, "variantId": original["id"], "answer": "Ответ",
+            "reveal": [2, 4, 8, 16],
+        }]}],
+    })
+    assert response.get_json()["problems"] == []
+    assert "reveal" not in response.get_json()["pack"]["themes"][0]["questions"][0]
 
 
 def test_pack_reports_what_is_missing(client, tracks):
@@ -156,7 +171,7 @@ def test_pack_reports_what_is_missing(client, tracks):
         "title": "Дырявая",
         "teams": ["А", "Б"],
         "themes": [{"title": "Тема", "questions": [
-            {"price": 100, "variantId": "", "answer": "", "reveal": []}
+            {"price": 100, "variantId": "", "answer": ""}
         ]}],
     })
     problems = response.get_json()["problems"]
@@ -189,7 +204,7 @@ def test_export_produces_self_contained_file(client, tracks):
     question = payload["themes"][0]["questions"][0]
     assert base64.b64decode(question["audio"])[:2] in (b"ID", b"\xff\xfb", b"\xff\xf3")
     assert question["answerAudio"], "звук ответа должен быть вшит"
-    assert question["reveal"][-1] == pytest.approx(8, abs=0.3)
+    assert question["duration"] == pytest.approx(8, abs=0.3)
 
 
 def test_export_refuses_incomplete_pack(client, tracks):

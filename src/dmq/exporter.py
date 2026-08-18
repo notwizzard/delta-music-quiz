@@ -87,7 +87,7 @@ def build_payload(pack: Pack, library: Library) -> tuple[dict, int]:
                 "price": question.price,
                 "answer": question.answer,
                 "comment": question.comment,
-                "reveal": question.normalized_reveal(variant.duration),
+                "duration": round(variant.duration, 2),
                 "audioKey": question.variant_id,
                 "audio": _encode_clip(audio_path, cache),
             }

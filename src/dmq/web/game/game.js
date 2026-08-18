@@ -11,6 +11,7 @@
 
   var PACK = JSON.parse(document.getElementById("pack-data").textContent);
   var BUZZ_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+  var NUDGE = 5;  // на сколько секунд прыгают стрелки
 
   // ---------------------------------------------------------------- состояние
 
@@ -20,14 +21,13 @@
     questionIndex: 0,
     used: {},          // "тема:вопрос" -> true
     scores: PACK.teams.map(function () { return 0; }),
-    revealIndex: 0,
     playing: false,
-    position: 0,       // сколько секунд уже прозвучало
+    position: 0,
     buzzed: null,      // индекс команды, нажавшей кнопку
-    audioProblem: false,
-    stageBlocked: false,
     spent: {},         // команды, уже ответившие неверно на этом вопросе
-    answerShown: false
+    answerShown: false,
+    audioProblem: false,
+    stageBlocked: false
   };
 
   // ------------------------------------------------------------------- звук
@@ -35,7 +35,6 @@
   var blobUrls = {};
   var player = new Audio();
   var currentUrl = null;
-  var limit = 0;
   var frame = null;
 
   function audioUrl(key, base64) {
@@ -47,42 +46,38 @@
     return blobUrls[key];
   }
 
-  /* Останавливаться нужно точно на границе шага, а событие timeupdate приходит
-     всего несколько раз в секунду — этого мало, поэтому следим через rAF. */
-  function watch() {
+  /* Ползунок двигаем по кадрам, а не по событию timeupdate: оно приходит
+     несколько раз в секунду, и головка ощутимо дёргается. */
+  function tick() {
     if (!state.playing) return;
     state.position = player.currentTime;
-    if (limit && player.currentTime >= limit) {
-      player.pause();
-      state.playing = false;
-      state.position = limit;
-      render();
-      return;
-    }
-    paintProgress();
-    frame = requestAnimationFrame(watch);
+    paintPosition();
+    frame = requestAnimationFrame(tick);
   }
 
-  /* Отрисовка никогда не ждёт звук. Если бы интерфейс обновлялся только после
-     успешного player.play(), то любая заминка с загрузкой оставляла бы ведущего
-     перед экраном, который врёт: шаг уже переключился, а на экране прежний. */
-  function play(url, from, to) {
-    stop();
-    limit = to;
-    state.position = from;
+  player.addEventListener("ended", function () {
+    state.playing = false;
+    state.position = trackLength();
+    render();
+  });
+
+  function attach(url) {
+    if (currentUrl === url) return;
+    currentUrl = url;
+    player.src = url;
+    state.position = 0;
+  }
+
+  function start(from) {
     state.audioProblem = false;
-
-    // Следующий кусок того же файла — это просто перемотка, а не новая загрузка.
-    if (currentUrl !== url) {
-      currentUrl = url;
-      player.src = url;
-    }
-
     var begin = function () {
-      try { player.currentTime = from; } catch (error) { /* до загрузки перемотка недоступна */ }
+      if (from !== null && from !== undefined) {
+        try { player.currentTime = from; } catch (error) { /* до загрузки перемотка недоступна */ }
+      }
       player.play().then(function () {
         state.playing = true;
-        frame = requestAnimationFrame(watch);
+        if (frame) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(tick);
         render();
       }).catch(function () {
         state.playing = false;
@@ -95,7 +90,7 @@
     else player.addEventListener("loadedmetadata", begin, { once: true });
   }
 
-  function stop() {
+  function pause() {
     if (frame) cancelAnimationFrame(frame);
     frame = null;
     player.pause();
@@ -109,74 +104,67 @@
     return theme ? theme.questions[state.questionIndex] : null;
   }
 
-  function currentSteps() {
+  function trackLength() {
     var question = currentQuestion();
-    return question ? question.reveal : [];
-  }
-
-  function openedUntil() {
-    var steps = currentSteps();
-    return steps.length ? steps[Math.min(state.revealIndex, steps.length - 1)] : 0;
-  }
-
-  function totalLength() {
-    var steps = currentSteps();
-    return steps.length ? steps[steps.length - 1] : 0;
-  }
-
-  function isLastStep() {
-    return state.revealIndex >= currentSteps().length - 1;
+    if (!question) return 0;
+    if (state.answerShown && question.answerDuration) return question.answerDuration;
+    if (isFinite(player.duration) && player.duration > 0) return player.duration;
+    return question.duration || 0;
   }
 
   // --------------------------------------------------------------- действия
 
   function openQuestion(themeIndex, questionIndex) {
     if (state.used[themeIndex + ":" + questionIndex]) return;
-    stop();
+    pause();
     state.view = "question";
     state.themeIndex = themeIndex;
     state.questionIndex = questionIndex;
-    state.revealIndex = 0;
     state.position = 0;
     state.buzzed = null;
     state.spent = {};
     state.answerShown = false;
-    render();
-  }
 
-  function playCurrent(fromStart) {
     var question = currentQuestion();
-    if (!question) return;
-    var url = audioUrl(question.audioKey, question.audio);
-    play(url, fromStart ? 0 : state.position, openedUntil());
-  }
-
-  /* Главная механика: открыть следующий кусок и доиграть именно его,
-     продолжив с того места, где остановились. */
-  function revealMore() {
-    if (isLastStep()) return;
-    var previous = openedUntil();
-    state.revealIndex += 1;
+    attach(audioUrl(question.audioKey, question.audio));
     render();
-    var question = currentQuestion();
-    play(audioUrl(question.audioKey, question.audio), previous, openedUntil());
   }
 
   function togglePlay() {
     if (state.playing) {
-      stop();
+      pause();
       render();
       return;
     }
-    // Дослушали до границы — следующее нажатие играет открытый кусок заново.
-    playCurrent(state.position >= openedUntil() - 0.02);
+    // Доиграли до конца — следующее нажатие начинает сначала.
+    var from = state.position >= trackLength() - 0.05 ? 0 : state.position;
+    start(from);
     render();
+  }
+
+  /* Перемотка не перерисовывает экран целиком, а только двигает полосу.
+     Полная перерисовка заменила бы саму полосу новым элементом, и тогда
+     перетаскивание головки обрывалось бы после первого же движения мыши. */
+  function seekTo(seconds) {
+    var length = trackLength();
+    state.position = Math.max(0, Math.min(seconds, length));
+    try { player.currentTime = state.position; } catch (error) { /* ещё не загрузилось */ }
+    paintPosition();
+  }
+
+  function nudge(delta) {
+    seekTo(state.position + delta);
+  }
+
+  function restart() {
+    seekTo(0);
+    if (!state.playing) start(0);
   }
 
   function buzz(teamIndex) {
     if (state.view !== "question" || state.answerShown) return;
     if (state.buzzed !== null || state.spent[teamIndex]) return;
-    stop();
+    pause();
     state.buzzed = teamIndex;
     render();
   }
@@ -197,17 +185,20 @@
   }
 
   function showAnswer() {
-    stop();
+    pause();
     state.answerShown = true;
+    state.position = 0;
     render();
+
     var question = currentQuestion();
     if (question && question.answerAudio) {
-      play(audioUrl(question.answerAudioKey, question.answerAudio), 0, question.answerDuration || 0);
+      attach(audioUrl(question.answerAudioKey, question.answerAudio));
+      start(0);
     }
   }
 
   function closeQuestion() {
-    stop();
+    pause();
     state.used[state.themeIndex + ":" + state.questionIndex] = true;
     state.view = "board";
     state.buzzed = null;
@@ -224,7 +215,7 @@
 
   function resetGame() {
     if (!window.confirm("Сбросить счёт и открыть все вопросы заново?")) return;
-    stop();
+    pause();
     state.used = {};
     state.scores = PACK.teams.map(function () { return 0; });
     state.view = "board";
@@ -266,6 +257,7 @@
       return;
     }
     state.stageBlocked = false;
+
     var css = document.getElementById("app-style").textContent;
     stage.document.open();
     stage.document.write(
@@ -292,6 +284,11 @@
     return String(value == null ? "" : value).replace(/[&<>"']/g, function (character) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character];
     });
+  }
+
+  function clock(seconds) {
+    var whole = Math.max(0, Math.floor(seconds || 0));
+    return Math.floor(whole / 60) + ":" + ("0" + (whole % 60)).slice(-2);
   }
 
   function boardHtml(forStage) {
@@ -321,40 +318,33 @@
     return '<div class="board" style="--cols:' + columns + '">' + rows + "</div>";
   }
 
-  function revealHtml() {
-    var steps = currentSteps();
-    var previous = 0;
-    return '<div class="reveal">' + steps.map(function (step, index) {
-      var span = step - previous;
-      var opened = index <= state.revealIndex;
-      var html =
-        '<div class="step' + (opened ? " open" : "") + '" style="--grow:' + Math.max(span, 0.4) + '" data-step="' + index + '">' +
-        '<div class="fill" data-fill="' + index + '"></div>' +
-        '<div class="num">' + formatSeconds(step) + "</div></div>";
-      previous = step;
-      return html;
-    }).join("") + "</div>";
+  function seekHtml(interactive) {
+    return (
+      '<div class="seek' + (interactive ? " grab" : "") + '"' + (interactive ? " data-seek" : "") + ">" +
+      '<div class="seek-fill" data-seek-fill></div>' +
+      '<div class="seek-head" data-seek-head></div>' +
+      "</div>" +
+      '<div class="seek-time"><span data-seek-now>' + clock(state.position) + "</span>" +
+      "<span>" + clock(trackLength()) + "</span></div>"
+    );
   }
 
-  function formatSeconds(value) {
-    return (value < 10 ? value.toFixed(1) : Math.round(value)) + " с";
-  }
+  /* Ползунок двигаем стилями напрямую, без перерисовки всего экрана: иначе на
+     каждом кадре пересобирался бы весь DOM обоих окон. */
+  function paintPosition() {
+    var length = trackLength();
+    var ratio = length > 0 ? Math.max(0, Math.min(1, state.position / length)) : 0;
+    var percent = ratio * 100 + "%";
+    var documents = [document];
+    if (stageAlive()) documents.push(stage.document);
 
-  /* Заливку двигаем напрямую по стилю, без перерисовки всего экрана —
-     иначе на каждом кадре пересобирался бы весь DOM обоих окон. */
-  function paintProgress() {
-    // После раскрытия играет уже ответ, и шкала вопроса к нему отношения не имеет.
-    if (state.answerShown) return;
-    var steps = currentSteps();
-    var previous = 0;
-    for (var index = 0; index < steps.length; index++) {
-      var span = steps[index] - previous;
-      var ratio = span > 0 ? (state.position - previous) / span : 0;
-      var percent = Math.max(0, Math.min(1, ratio)) * 100 + "%";
-      var nodes = [document.querySelector('[data-fill="' + index + '"]')];
-      if (stageAlive()) nodes.push(stage.document.querySelector('[data-fill="' + index + '"]'));
-      for (var n = 0; n < nodes.length; n++) if (nodes[n]) nodes[n].style.width = percent;
-      previous = steps[index];
+    for (var i = 0; i < documents.length; i++) {
+      var fill = documents[i].querySelector("[data-seek-fill]");
+      var head = documents[i].querySelector("[data-seek-head]");
+      var now = documents[i].querySelector("[data-seek-now]");
+      if (fill) fill.style.width = percent;
+      if (head) head.style.left = percent;
+      if (now) now.textContent = clock(state.position);
     }
   }
 
@@ -408,7 +398,6 @@
   function renderAdminQuestion() {
     var theme = PACK.themes[state.themeIndex];
     var question = currentQuestion();
-    var last = isLastStep();
 
     var answerBox =
       '<div class="answer-box"><div class="label">Правильный ответ</div>' +
@@ -419,8 +408,10 @@
     var transport =
       '<div class="transport">' +
       '<button class="primary big" data-action="play">' + (state.playing ? "⏸ Пауза" : "▶ Играть") + "</button>" +
-      '<button class="big" data-action="more"' + (last ? " disabled" : "") + ">＋ Ещё кусочек</button>" +
+      '<button data-action="back">−' + NUDGE + " с</button>" +
+      '<button data-action="forward">+' + NUDGE + " с</button>" +
       '<button data-action="restart">⏮ С начала</button>' +
+      '<span class="spacer"></span>' +
       '<button data-action="answer"' + (state.answerShown ? " disabled" : "") + ">Показать ответ</button>" +
       '<button data-action="close">Закрыть вопрос</button>' +
       "</div>";
@@ -440,15 +431,14 @@
 
     return (
       '<div class="question">' +
-      '<div class="where">' + escapeHtml(theme.title) + " · " + question.price + "</div>" +
+      '<div class="where">' + escapeHtml(theme.title) + " · " + question.price +
+      (state.answerShown ? " · играет оригинал" : "") + "</div>" +
       answerBox +
-      revealHtml() +
-      '<div class="hint">Открыто ' + formatSeconds(openedUntil()) + " из " + formatSeconds(totalLength()) +
-      " · шаг " + (state.revealIndex + 1) + " из " + currentSteps().length +
-      (state.audioProblem ? " · звук не запустился, нажми «Играть» ещё раз" : "") + "</div>" +
+      seekHtml(true) +
+      (state.audioProblem ? '<div class="hint">Звук не запустился, нажми «Играть» ещё раз</div>' : "") +
       transport + judging +
-      '<p class="hint"><kbd>пробел</kbd> играть и пауза · <kbd>→</kbd> ещё кусочек · ' +
-      "<kbd>1</kbd>…<kbd>9</kbd> кнопка команды · <kbd>Esc</kbd> закрыть вопрос</p>" +
+      '<p class="hint"><kbd>пробел</kbd> играть и пауза · <kbd>←</kbd> <kbd>→</kbd> перемотка на ' +
+      NUDGE + " с · <kbd>1</kbd>…<kbd>9</kbd> кнопка команды · <kbd>Esc</kbd> закрыть вопрос</p>" +
       "</div>"
     );
   }
@@ -465,12 +455,12 @@
       var center;
 
       if (state.answerShown) {
-        center = '<div class="answer">' + escapeHtml(question.answer) + "</div>";
+        center = '<div class="answer">' + escapeHtml(question.answer) + "</div>" + seekHtml(false);
       } else if (state.buzzed !== null) {
         center = '<div class="buzzed">' + escapeHtml(PACK.teams[state.buzzed]) + "</div>" +
           '<div class="status">отвечает</div>';
       } else {
-        center = '<div class="price">' + question.price + "</div>" + revealHtml() +
+        center = '<div class="price">' + question.price + "</div>" + seekHtml(false) +
           '<div class="status">' + (state.playing ? "Слушаем…" : "Готовы") + "</div>";
       }
 
@@ -484,10 +474,36 @@
   function render() {
     renderAdmin();
     renderStage();
-    paintProgress();
+    paintPosition();
   }
 
   // ---------------------------------------------------------------- события
+
+  /* Полосу ищем заново на каждое движение: если экран между делом
+     перерисовался, старая ссылка указывала бы на выброшенный из документа
+     элемент, и перемотка молча перестала бы работать. */
+  function seekFromPointer(clientX) {
+    var bar = document.querySelector("[data-seek]");
+    if (!bar) return;
+    var box = bar.getBoundingClientRect();
+    if (box.width <= 0) return;
+    seekTo(((clientX - box.left) / box.width) * trackLength());
+  }
+
+  document.addEventListener("pointerdown", function (event) {
+    if (!event.target.closest("[data-seek]")) return;
+    event.preventDefault();
+    seekFromPointer(event.clientX);
+
+    // Тянем головку, пока кнопка зажата, — как в обычном плеере.
+    var move = function (moveEvent) { seekFromPointer(moveEvent.clientX); };
+    var up = function () {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  });
 
   document.addEventListener("click", function (event) {
     var target = event.target.closest("[data-open],[data-action],[data-judge],[data-score]");
@@ -506,8 +522,9 @@
       ({
         stage: openStage,
         play: togglePlay,
-        more: revealMore,
-        restart: function () { playCurrent(true); },
+        back: function () { nudge(-NUDGE); },
+        forward: function () { nudge(NUDGE); },
+        restart: restart,
         answer: showAnswer,
         close: closeQuestion,
         reset: resetGame
@@ -517,15 +534,16 @@
 
   function onKey(event) {
     if (event.target && /^(INPUT|TEXTAREA)$/.test(event.target.tagName)) return;
+    if (state.view !== "question") return;
     var key = event.key;
 
-    if (state.view === "question") {
-      if (key === " ") { event.preventDefault(); togglePlay(); return; }
-      if (key === "ArrowRight") { event.preventDefault(); revealMore(); return; }
-      if (key === "Escape") { closeQuestion(); return; }
-      var team = BUZZ_KEYS.indexOf(key);
-      if (team >= 0 && team < PACK.teams.length) { event.preventDefault(); buzz(team); }
-    }
+    if (key === " ") { event.preventDefault(); togglePlay(); return; }
+    if (key === "ArrowLeft") { event.preventDefault(); nudge(-NUDGE); return; }
+    if (key === "ArrowRight") { event.preventDefault(); nudge(NUDGE); return; }
+    if (key === "Escape") { closeQuestion(); return; }
+
+    var team = BUZZ_KEYS.indexOf(key);
+    if (team >= 0 && team < PACK.teams.length) { event.preventDefault(); buzz(team); }
   }
 
   document.addEventListener("keydown", onKey);

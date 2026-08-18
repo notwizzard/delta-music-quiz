@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 DEFAULT_PRICES = [100, 200, 300, 400, 500]
@@ -27,15 +27,16 @@ class Question:
     """Что играем после раскрытия. Обычно оригинал трека."""
     comment: str = ""
     """Необязательная подсказка ведущему: год, факт, что сказать вслух."""
-    reveal: list[float] = field(default_factory=list)
-    """Шаги раскрытия в секундах: сколько звука открыто на каждом нажатии «ещё»."""
 
-    def normalized_reveal(self, duration: float) -> list[float]:
-        """Убрать шаги за пределами длины и гарантировать финальный шаг во всю длину."""
-        steps = sorted({round(min(step, duration), 2) for step in self.reveal if step > 0})
-        if not steps or steps[-1] < duration - 0.05:
-            steps.append(round(duration, 2))
-        return steps
+    @classmethod
+    def from_dict(cls, raw: dict) -> "Question":
+        """Собрать вопрос, молча пропустив незнакомые поля.
+
+        Старые паки хранили шаги раскрытия — сейчас в игре обычный плеер с
+        перемоткой, и такие файлы должны продолжать открываться.
+        """
+        known = {field.name for field in fields(cls)}
+        return cls(**{key: value for key, value in raw.items() if key in known})
 
 
 @dataclass
@@ -67,7 +68,7 @@ class Pack:
         themes = [
             Theme(
                 title=theme.get("title", ""),
-                questions=[Question(**question) for question in theme.get("questions", [])],
+                questions=[Question.from_dict(question) for question in theme.get("questions", [])],
             )
             for theme in raw.get("themes", [])
         ]
@@ -122,19 +123,3 @@ class Pack:
                 if question.answer_variant_id:
                     used.add(question.answer_variant_id)
         return {identifier for identifier in used if identifier}
-
-
-def default_reveal(duration: float, bpm: float = 0.0) -> list[float]:
-    """Шаги раскрытия по умолчанию: коротко, потом всё длиннее.
-
-    Если темп известен, шаги подгоняются под целые такты — тогда «ещё немного»
-    открывает музыкальную фразу, а не обрывок на середине доли.
-    """
-    if bpm and bpm > 0:
-        bar = 4 * 60.0 / bpm
-        steps = [bar, bar * 2, bar * 4, bar * 8]
-    else:
-        steps = [2.0, 5.0, 10.0, 20.0]
-
-    inside = [round(step, 2) for step in steps if step < duration - 0.2]
-    return inside + [round(duration, 2)]

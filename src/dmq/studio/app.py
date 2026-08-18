@@ -15,7 +15,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from .. import exporter, presets, render
 from ..library import Library
-from ..pack import DEFAULT_PRICES, Pack, Question, Theme, default_reveal
+from ..pack import DEFAULT_PRICES, Pack, Question, Theme
 from .jobs import Job, JobRegistry
 
 AUDIO_SUFFIXES = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac", ".wma"}
@@ -84,7 +84,6 @@ def create_app(workspace: str | Path) -> Flask:
                             "answer": question.answer,
                             "answerVariantId": question.answer_variant_id,
                             "comment": question.comment,
-                            "reveal": question.reveal,
                         }
                         for question in theme.questions
                     ],
@@ -223,17 +222,12 @@ def create_app(workspace: str | Path) -> Flask:
         for theme in body.get("themes", []):
             questions = []
             for item in theme.get("questions", []):
-                variant_id = item.get("variantId") or ""
-                reveal = item.get("reveal") or []
-                if not reveal and variant_id:
-                    reveal = _suggest_reveal(variant_id)
                 questions.append(Question(
                     price=int(item.get("price", 100)),
-                    variant_id=variant_id,
+                    variant_id=item.get("variantId") or "",
                     answer=item.get("answer", ""),
                     answer_variant_id=item.get("answerVariantId") or None,
                     comment=item.get("comment", ""),
-                    reveal=reveal,
                 ))
             themes.append(Theme(title=theme.get("title", ""), questions=questions))
 
@@ -248,14 +242,6 @@ def create_app(workspace: str | Path) -> Flask:
 
         known = {variant.id for track in library.tracks for variant in track.variants}
         return jsonify({"pack": pack_payload(), "problems": pack.problems(known)})
-
-    def _suggest_reveal(variant_id: str) -> list[float]:
-        """Шаги раскрытия по умолчанию — по тактам исходного трека."""
-        try:
-            track, variant = library.variant(variant_id)
-        except KeyError:
-            return []
-        return default_reveal(variant.duration, track.bpm)
 
     def _drop_missing_questions() -> None:
         """Убрать из пака ссылки на исчезнувшие заготовки, чтобы игра не ломалась."""
@@ -292,10 +278,6 @@ def create_app(workspace: str | Path) -> Flask:
         if not target.exists():
             return jsonify({"error": "файл не найден"}), 404
         return send_file(target, as_attachment=True)
-
-    @app.get("/api/reveal/<variant_id>")
-    def reveal_defaults(variant_id: str):
-        return jsonify({"reveal": _suggest_reveal(variant_id)})
 
     return app
 

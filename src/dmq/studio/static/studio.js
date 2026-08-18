@@ -343,7 +343,7 @@ function wireBoard() {
     S.pack.themes.push({
       title: "Новая тема",
       questions: S.prices.map((price) => ({
-        price, variantId: "", answer: "", answerVariantId: null, comment: "", reveal: []
+        price, variantId: "", answer: "", answerVariantId: null, comment: ""
       }))
     });
     savePack(true);
@@ -365,11 +365,11 @@ function openCell(themeIndex, questionIndex) {
         ${allVariantOptions(question.variantId)}</select></label>
     <div class="row" style="margin:-6px 0 12px">
       <button class="small" id="c-play" ${question.variantId ? "" : "disabled"}>▶ Послушать</button>
-      <span class="muted">Шаги раскрытия подберутся по тактам автоматически</span>
+      <span class="muted">Во время игры ведущий сможет перематывать этот звук как угодно</span>
     </div>
     <label class="field"><span>Правильный ответ</span>
       <input id="c-answer" value="${esc(question.answer)}" placeholder="Исполнитель — Название"></label>
-    <label class="field"><span>Что играет после раскрытия</span>
+    <label class="field"><span>Что играет, когда ответ показан</span>
       <select id="c-answer-variant"><option value="">— ничего —</option>
         ${allVariantOptions(question.answerVariantId)}</select></label>
     <label class="field"><span>Заметка ведущему (необязательно)</span>
@@ -401,15 +401,13 @@ function openCell(themeIndex, questionIndex) {
   document.getElementById("c-play").onclick = () => playPreview(variantSelect.value);
   document.getElementById("c-cancel").onclick = () => dialog.close();
   document.getElementById("c-clear").onclick = () => {
-    Object.assign(question, { variantId: "", answer: "", answerVariantId: null, comment: "", reveal: [] });
+    Object.assign(question, { variantId: "", answer: "", answerVariantId: null, comment: "" });
     dialog.close();
     savePack(true);
   };
   document.getElementById("c-save").onclick = () => {
-    const chosen = variantSelect.value;
-    if (chosen !== question.variantId) question.reveal = [];   // пересчитает сервер
+    question.variantId = variantSelect.value;
     question.price = Number(document.getElementById("c-price").value) || question.price;
-    question.variantId = chosen;
     question.answer = document.getElementById("c-answer").value.trim();
     question.answerVariantId = answerSelect.value || null;
     question.comment = document.getElementById("c-comment").value.trim();
@@ -447,7 +445,7 @@ function renderExport() {
         <li>Подключи проектор или телевизор вторым экраном (именно вторым, не зеркалом).</li>
         <li>Нажми «Открыть экран для зала» и перетащи новое окно на большой экран, затем разверни его.</li>
         <li>На своём экране остаётся пульт: там видны ответы, здесь же начисляются баллы.</li>
-        <li>Нажми на клетку, потом «Играть». Кнопка «Ещё кусочек» открывает следующий отрывок.</li>
+        <li>Нажми на клетку и включай звук. Перематывать можно куда угодно — тяни ползунок или жми стрелки.</li>
         <li>Команда жмёт свою цифру на клавиатуре, или ты нажимаешь её сам. Дальше «Верно» или «Неверно».</li>
       </ol>
     </div>`;
@@ -523,7 +521,7 @@ document.addEventListener("click", (event) => {
     const last = theme.questions[theme.questions.length - 1];
     theme.questions.push({
       price: last ? last.price + 100 : 100,
-      variantId: "", answer: "", answerVariantId: null, comment: "", reveal: []
+      variantId: "", answer: "", answerVariantId: null, comment: ""
     });
     savePack(true);
   }
