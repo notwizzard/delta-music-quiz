@@ -202,3 +202,15 @@ kbd {
   .question { padding: 14px; }
   .question .answer-box .text { font-size: 21px; }
 }
+
+/* ---------- визуализация звука ---------- */
+/* Холст лежит отдельным слоем под #root и потому переживает перерисовку
+   содержимого зала — иначе анимация обрывалась бы на каждом действии ведущего. */
+
+#viz {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  z-index: 0; pointer-events: none;
+  opacity: .9;
+}
+#root { position: relative; z-index: 1; }
