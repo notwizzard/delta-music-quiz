@@ -1,0 +1,9 @@
+.venv/
+venv/
+out/
+workspace/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.DS_Store
+.claude/

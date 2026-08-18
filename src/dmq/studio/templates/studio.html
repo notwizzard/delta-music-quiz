@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Студия музыкальной игры</title>
+<link rel="stylesheet" href="/static/studio.css">
+</head>
+<body>
+<header>
+  <h1>Студия музыкальной игры</h1>
+  <nav class="steps">
+    <button data-step="library" class="active">1. Музыка</button>
+    <button data-step="board">2. Доска</button>
+    <button data-step="export">3. Готовая игра</button>
+  </nav>
+</header>
+
+<main id="view"></main>
+<div id="toasts"></div>
+
+<dialog id="cell-dialog"><div class="inner" id="cell-dialog-body"></div></dialog>
+
+<script src="/static/studio.js"></script>
+</body>
+</html>

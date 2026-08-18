@@ -1,0 +1,142 @@
+:root {
+  --bg: #f6f6f9;
+  --card: #ffffff;
+  --ink: #1c1c28;
+  --muted: #6b6b83;
+  --line: #e0e0ea;
+  --accent: #4a5df0;
+  --accent-soft: #eceefe;
+  --good: #17935a;
+  --bad: #d4344b;
+  --warn: #9a6100;
+  --warn-soft: #fff5e0;
+  --radius: 12px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+}
+
+h1 { font-size: 20px; margin: 0; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 18px; }
+
+button, select, input, textarea {
+  font: inherit; color: inherit; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--card); padding: 8px 12px;
+}
+button { cursor: pointer; transition: filter .12s ease; }
+button:hover:not(:disabled) { filter: brightness(.96); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+button.ghost { background: transparent; }
+button.danger { color: var(--bad); border-color: #f2ccd2; background: transparent; }
+button.small { padding: 4px 9px; font-size: 13px; border-radius: 7px; }
+input, select, textarea { width: 100%; }
+textarea { resize: vertical; min-height: 62px; }
+label.field { display: block; margin-bottom: 12px; }
+label.field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+
+/* ---------- каркас ---------- */
+
+header {
+  background: var(--card); border-bottom: 1px solid var(--line);
+  padding: 12px 24px; display: flex; align-items: center; gap: 18px;
+  position: sticky; top: 0; z-index: 20;
+}
+header .steps { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+header .steps button { border-radius: 999px; padding: 7px 16px; }
+header .steps button.active { background: var(--accent); color: #fff; border-color: transparent; font-weight: 600; }
+
+main { max-width: 1080px; margin: 0 auto; padding: 24px 24px 80px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 18px; margin-bottom: 14px;
+}
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.muted { color: var(--muted); font-size: 13px; }
+.pill {
+  display: inline-block; font-size: 12px; color: var(--muted);
+  background: var(--bg); border: 1px solid var(--line);
+  border-radius: 999px; padding: 1px 9px; margin-right: 5px;
+}
+.pill.warn { color: var(--warn); background: var(--warn-soft); border-color: #f0dcae; }
+
+/* ---------- загрузка ---------- */
+
+.dropzone {
+  border: 2px dashed var(--line); border-radius: var(--radius);
+  padding: 34px; text-align: center; color: var(--muted);
+  background: var(--card); cursor: pointer; transition: all .15s ease;
+}
+.dropzone.over { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.dropzone strong { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+
+/* ---------- треки ---------- */
+
+.track { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 10px; background: var(--card); }
+.track > .head { display: flex; gap: 12px; align-items: center; padding: 12px 14px; }
+.track > .head .title { font-weight: 600; }
+.track.open > .head { border-bottom: 1px solid var(--line); }
+.track .body { padding: 14px; display: none; }
+.track.open .body { display: block; }
+.track .selector { width: 18px; height: 18px; flex: 0 0 auto; }
+
+.tools { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.tools .group { display: flex; align-items: center; gap: 4px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 4px 6px; }
+.tools .group > span { font-size: 13px; color: var(--muted); padding: 0 4px; }
+
+.variant {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; margin-bottom: 6px;
+}
+.variant .label { flex: 1; }
+.variant.is-source { background: var(--bg); }
+
+/* ---------- доска ---------- */
+
+.themes { display: flex; flex-direction: column; gap: 10px; }
+.theme-row { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; }
+.theme-row .theme-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.theme-row .theme-head input { font-weight: 600; }
+.cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.cell-btn {
+  text-align: left; padding: 10px 12px; border-radius: 10px; min-height: 74px;
+  display: flex; flex-direction: column; gap: 3px; background: var(--bg);
+}
+.cell-btn .price { font-weight: 700; color: var(--accent); }
+.cell-btn .what { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-btn.empty { border-style: dashed; }
+.cell-btn.active { outline: 2px solid var(--accent); background: var(--accent-soft); }
+
+/* ---------- проблемы ---------- */
+
+.problems { background: var(--warn-soft); border-color: #f0dcae; }
+.problems ul { margin: 6px 0 0; padding-left: 20px; }
+.problems li { margin-bottom: 3px; }
+.ok-banner { background: #e9f7ef; border-color: #bde5cd; }
+
+/* ---------- задачи и уведомления ---------- */
+
+#toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
+.toast {
+  background: var(--ink); color: #fff; padding: 11px 15px; border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.2); max-width: 380px; font-size: 14px;
+}
+.toast.bad { background: var(--bad); }
+.toast.good { background: var(--good); }
+
+.progress { height: 5px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+.progress > div { height: 100%; background: var(--accent); transition: width .25s ease; }
+
+dialog { border: none; border-radius: 14px; padding: 0; max-width: 560px; width: 92vw; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+dialog::backdrop { background: rgba(20,20,35,.45); }
+dialog .inner { padding: 20px; }
+dialog h2 { margin-bottom: 12px; }

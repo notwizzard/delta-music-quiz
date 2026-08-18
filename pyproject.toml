@@ -1,0 +1,32 @@
+[project]
+name = "dmq"
+version = "0.1.0"
+description = "Генератор преобразований музыки для викторины «Угадай мелодию» в формате Своей игры"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "librosa>=0.10.2",
+    "soundfile>=0.12.1",
+    "pyloudnorm>=0.1.1",
+    "click>=8.1",
+    "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "scipy>=1.11",
+]
+
+[project.scripts]
+dmq = "dmq.cli:cli"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+dmq = ["web/game/*", "studio/static/*", "studio/templates/*"]
