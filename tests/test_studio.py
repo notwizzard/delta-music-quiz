@@ -233,3 +233,95 @@ def test_deleting_a_track_does_not_break_the_pack(client, tracks):
     first = state["pack"]["themes"][0]["questions"][0]
     assert first["variantId"] == ""
     assert any("не выбран звук" in problem for problem in state["problems"])
+
+
+# --- картинки к вопросам ----------------------------------------------------
+
+def upload_picture(client, path):
+    data = {"files": (io.BytesIO(path.read_bytes()), path.name)}
+    response = client.post("/api/images", data=data, content_type="multipart/form-data")
+    assert response.status_code == 200, response.get_json()
+    return response.get_json()["added"][0]
+
+
+def test_upload_and_serve_picture(client, pictures):
+    added = upload_picture(client, pictures["opaque"])
+    assert added["label"] == "photo"
+
+    served = client.get(f"/media/image/{added['id']}")
+    assert served.status_code == 200
+    assert len(served.data) > 500
+
+    assert [image["id"] for image in client.get("/api/state").get_json()["images"]] == [added["id"]]
+
+
+def test_rejects_non_image_upload(client, tracks):
+    data = {"files": (io.BytesIO(b"not a picture"), "notes.txt")}
+    response = client.post("/api/images", data=data, content_type="multipart/form-data")
+    assert response.status_code == 400
+
+
+def pack_with_picture(client, tracks, pictures, which, when):
+    upload(client, tracks, ["alpha"])
+    library = client.get("/api/state").get_json()["library"]
+    track = library[0]
+    original = next(v for v in track["variants"] if v["kind"] == "source")
+    image = upload_picture(client, pictures[which])
+
+    client.put("/api/pack", json={
+        "title": "С картинкой", "teams": ["А", "Б"],
+        "themes": [{"title": "Тема", "questions": [{
+            "price": 100, "variantId": original["id"], "answer": "Ответ",
+            "imageId": image["id"], "imageWhen": when,
+        }]}],
+    })
+    return image
+
+
+def exported_payload(client, result):
+    html = (client.workspace / "exports" / result["file"]).read_text(encoding="utf-8")
+    return json.loads(re.search(
+        r'<script id="pack-data" type="application/json">(.*?)</script>', html, re.S
+    ).group(1))
+
+
+def test_picture_is_embedded_and_compressed(client, tracks, pictures):
+    pack_with_picture(client, tracks, pictures, "opaque", "answer")
+    result = wait(client, client.post("/api/export").get_json())
+
+    question = exported_payload(client, result)["themes"][0]["questions"][0]
+    assert question["imageWhen"] == "answer"
+    assert question["image"].startswith("data:image/jpeg;base64,")
+
+    # Ужимается до 1400 пикселей, поэтому упакованная картинка легче исходной.
+    packed = base64.b64decode(question["image"].split(",", 1)[1])
+    assert len(packed) < pictures["opaque"].stat().st_size
+
+
+def test_transparent_picture_stays_png(client, tracks, pictures):
+    """JPEG не умеет прозрачность, поэтому такие картинки должны уходить в PNG."""
+    pack_with_picture(client, tracks, pictures, "transparent", "question")
+    result = wait(client, client.post("/api/export").get_json())
+
+    question = exported_payload(client, result)["themes"][0]["questions"][0]
+    assert question["image"].startswith("data:image/png;base64,")
+    assert question["imageWhen"] == "question"
+
+
+def test_question_without_picture_has_no_image_field(client, tracks):
+    build_simple_pack(client, tracks)
+    result = wait(client, client.post("/api/export").get_json())
+
+    question = exported_payload(client, result)["themes"][0]["questions"][0]
+    assert "image" not in question
+
+
+def test_deleting_picture_clears_it_from_the_pack(client, tracks, pictures):
+    image = pack_with_picture(client, tracks, pictures, "opaque", "answer")
+    assert client.delete(f"/api/images/{image['id']}").status_code == 200
+
+    state = client.get("/api/state").get_json()
+    assert state["images"] == []
+    assert state["pack"]["themes"][0]["questions"][0]["imageId"] is None
+    # Пропавшая картинка не должна мешать собрать игру — она была необязательной.
+    assert state["problems"] == []

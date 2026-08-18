@@ -3,7 +3,7 @@
 
 const S = {
   step: "library",
-  library: [], pack: null, presets: [], prices: [], problems: [], workspace: "",
+  library: [], images: [], pack: null, presets: [], prices: [], problems: [], workspace: "",
   openTracks: new Set(),
   selected: new Set(),          // отмеченные треки для наложения
   clip: { start: "", length: 40 },
@@ -295,7 +295,7 @@ function renderBoard() {
               data-cell="${themeIndex}|${questionIndex}">
         <span class="price">${question.price}</span>
         <span class="what">${question.variantId ? esc(variantLabel(question.variantId)) : "выбрать звук"}</span>
-        <span class="what">${question.answer ? esc(question.answer) : "ответ не задан"}</span>
+        <span class="what">${question.answer ? esc(question.answer) : "ответ не задан"}${question.imageId ? " · 🖼" : ""}</span>
       </button>`).join("");
 
     return `
@@ -343,7 +343,7 @@ function wireBoard() {
     S.pack.themes.push({
       title: "Новая тема",
       questions: S.prices.map((price) => ({
-        price, variantId: "", answer: "", answerVariantId: null, comment: ""
+        price, variantId: "", answer: "", answerVariantId: null, comment: "", imageId: null, imageWhen: "answer"
       }))
     });
     savePack(true);
@@ -374,6 +374,11 @@ function openCell(themeIndex, questionIndex) {
         ${allVariantOptions(question.answerVariantId)}</select></label>
     <label class="field"><span>Заметка ведущему (необязательно)</span>
       <textarea id="c-comment" placeholder="Что сказать вслух, год выпуска, факт">${esc(question.comment)}</textarea></label>
+
+    <label class="field" style="margin-bottom:6px"><span>Картинка (необязательно)</span></label>
+    <div id="c-image-block"></div>
+    <input type="file" id="c-image-file" accept="image/*" hidden>
+
     <div class="row">
       <button class="danger" id="c-clear">Очистить клетку</button>
       <span class="spacer"></span>
@@ -383,6 +388,59 @@ function openCell(themeIndex, questionIndex) {
 
   const variantSelect = document.getElementById("c-variant");
   const answerSelect = document.getElementById("c-answer-variant");
+  const draft = { imageId: question.imageId || "", imageWhen: question.imageWhen || "answer" };
+
+  /* Блок картинки перерисовывается сам по себе: после загрузки нового файла
+     список должен обновиться, не закрывая диалог и не теряя остальные поля. */
+  function paintImage() {
+    const options = S.images.map((image) =>
+      `<option value="${image.id}" ${image.id === draft.imageId ? "selected" : ""}>${esc(image.label)}</option>`).join("");
+
+    document.getElementById("c-image-block").innerHTML = `
+      <div class="row" style="margin-bottom:10px">
+        <select id="c-image" style="flex:1">
+          <option value="">— без картинки —</option>${options}
+        </select>
+        <button class="small" id="c-image-add">Загрузить свою</button>
+      </div>
+      ${draft.imageId ? `
+        <div class="image-preview">
+          <img src="/media/image/${draft.imageId}" alt="">
+          <div style="flex:1">
+            <label class="field" style="margin:0"><span>Когда показать залу</span>
+              <select id="c-image-when">
+                <option value="answer" ${draft.imageWhen === "answer" ? "selected" : ""}>вместе с ответом</option>
+                <option value="question" ${draft.imageWhen === "question" ? "selected" : ""}>сразу, в вопросе</option>
+              </select></label>
+          </div>
+        </div>` : `<div class="muted" style="margin-bottom:10px">Картинки нет.</div>`}`;
+
+    document.getElementById("c-image").onchange = (event) => {
+      draft.imageId = event.target.value;
+      paintImage();
+    };
+    document.getElementById("c-image-add").onclick = () => document.getElementById("c-image-file").click();
+    const when = document.getElementById("c-image-when");
+    if (when) when.onchange = (event) => { draft.imageWhen = event.target.value; };
+  }
+
+  document.getElementById("c-image-file").onchange = async (event) => {
+    const files = event.target.files;
+    event.target.value = "";
+    if (!files || !files.length) return;
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    try {
+      const result = await api("/api/images", { method: "POST", body: form });
+      S.images = (await api("/api/state")).images;
+      if (result.added.length) draft.imageId = result.added[0].id;
+      paintImage();
+    } catch (error) {
+      toast(error.message, "bad");
+    }
+  };
+
+  paintImage();
 
   /* Ответом почти всегда должен звучать оригинал того же трека —
      подставляем его сразу, чтобы это не приходилось делать руками. */
@@ -401,7 +459,7 @@ function openCell(themeIndex, questionIndex) {
   document.getElementById("c-play").onclick = () => playPreview(variantSelect.value);
   document.getElementById("c-cancel").onclick = () => dialog.close();
   document.getElementById("c-clear").onclick = () => {
-    Object.assign(question, { variantId: "", answer: "", answerVariantId: null, comment: "" });
+    Object.assign(question, { variantId: "", answer: "", answerVariantId: null, comment: "", imageId: null, imageWhen: "answer" });
     dialog.close();
     savePack(true);
   };
@@ -411,6 +469,8 @@ function openCell(themeIndex, questionIndex) {
     question.answer = document.getElementById("c-answer").value.trim();
     question.answerVariantId = answerSelect.value || null;
     question.comment = document.getElementById("c-comment").value.trim();
+    question.imageId = draft.imageId || null;
+    question.imageWhen = draft.imageWhen;
     dialog.close();
     savePack(true);
   };
@@ -521,7 +581,7 @@ document.addEventListener("click", (event) => {
     const last = theme.questions[theme.questions.length - 1];
     theme.questions.push({
       price: last ? last.price + 100 : 100,
-      variantId: "", answer: "", answerVariantId: null, comment: ""
+      variantId: "", answer: "", answerVariantId: null, comment: "", imageId: null, imageWhen: "answer"
     });
     savePack(true);
   }

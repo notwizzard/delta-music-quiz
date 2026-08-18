@@ -140,3 +140,9 @@ dialog { border: none; border-radius: 14px; padding: 0; max-width: 560px; width:
 dialog::backdrop { background: rgba(20,20,35,.45); }
 dialog .inner { padding: 20px; }
 dialog h2 { margin-bottom: 12px; }
+
+.image-preview { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+.image-preview img {
+  width: 120px; height: 120px; object-fit: cover;
+  border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+}

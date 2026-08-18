@@ -27,6 +27,10 @@ class Question:
     """Что играем после раскрытия. Обычно оригинал трека."""
     comment: str = ""
     """Необязательная подсказка ведущему: год, факт, что сказать вслух."""
+    image_id: str | None = None
+    """Картинка к вопросу, если нужна."""
+    image_when: str = "answer"
+    """Когда показывать картинку залу: answer — вместе с ответом, question — сразу."""
 
     @classmethod
     def from_dict(cls, raw: dict) -> "Question":
@@ -86,7 +90,7 @@ class Pack:
 
     # --- проверки ---------------------------------------------------------
 
-    def problems(self, known_variants: set[str]) -> list[str]:
+    def problems(self, known_variants: set[str], known_images: set[str] | None = None) -> list[str]:
         """Что мешает сыграть эту игру. Пустой список — можно экспортировать."""
         issues: list[str] = []
 
@@ -111,6 +115,8 @@ class Pack:
                     issues.append(f"{where}: не заполнен ответ")
                 if question.answer_variant_id and question.answer_variant_id not in known_variants:
                     issues.append(f"{where}: звук ответа пропал из фонотеки")
+                if question.image_id and known_images is not None and question.image_id not in known_images:
+                    issues.append(f"{where}: картинка пропала из фонотеки")
 
         return issues
 

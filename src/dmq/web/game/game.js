@@ -399,6 +399,13 @@
     var theme = PACK.themes[state.themeIndex];
     var question = currentQuestion();
 
+    var picture = question.image
+      ? '<div class="admin-picture"><img src="' + question.image + '" alt="">' +
+        '<span class="hint">' +
+        (question.imageWhen === "question" ? "Зал видит эту картинку с самого начала" : "Покажется залу вместе с ответом") +
+        "</span></div>"
+      : "";
+
     var answerBox =
       '<div class="answer-box"><div class="label">Правильный ответ</div>' +
       '<div class="text">' + escapeHtml(question.answer) + "</div>" +
@@ -433,7 +440,7 @@
       '<div class="question">' +
       '<div class="where">' + escapeHtml(theme.title) + " · " + question.price +
       (state.answerShown ? " · играет оригинал" : "") + "</div>" +
-      answerBox +
+      answerBox + picture +
       seekHtml(true) +
       (state.audioProblem ? '<div class="hint">Звук не запустился, нажми «Играть» ещё раз</div>' : "") +
       transport + judging +
@@ -454,13 +461,20 @@
       var question = currentQuestion();
       var center;
 
+      // Картинка «в вопросе» висит с самого начала и остаётся при ответе,
+      // картинка «к ответу» появляется только когда ответ раскрыт.
+      var early = question.image && question.imageWhen === "question";
+      var picture = question.image && (early || state.answerShown)
+        ? '<img class="stage-picture" src="' + question.image + '" alt="">'
+        : "";
+
       if (state.answerShown) {
-        center = '<div class="answer">' + escapeHtml(question.answer) + "</div>" + seekHtml(false);
+        center = picture + '<div class="answer">' + escapeHtml(question.answer) + "</div>" + seekHtml(false);
       } else if (state.buzzed !== null) {
-        center = '<div class="buzzed">' + escapeHtml(PACK.teams[state.buzzed]) + "</div>" +
+        center = picture + '<div class="buzzed">' + escapeHtml(PACK.teams[state.buzzed]) + "</div>" +
           '<div class="status">отвечает</div>';
       } else {
-        center = '<div class="price">' + question.price + "</div>" + seekHtml(false) +
+        center = picture + '<div class="price">' + question.price + "</div>" + seekHtml(false) +
           '<div class="status">' + (state.playing ? "Слушаем…" : "Готовы") + "</div>";
       }
 

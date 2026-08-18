@@ -19,6 +19,7 @@ from ..pack import DEFAULT_PRICES, Pack, Question, Theme
 from .jobs import Job, JobRegistry
 
 AUDIO_SUFFIXES = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".opus", ".aac", ".wma"}
+IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".tif", ".tiff"}
 
 
 def create_app(workspace: str | Path) -> Flask:
@@ -84,6 +85,8 @@ def create_app(workspace: str | Path) -> Flask:
                             "answer": question.answer,
                             "answerVariantId": question.answer_variant_id,
                             "comment": question.comment,
+                            "imageId": question.image_id,
+                            "imageWhen": question.image_when,
                         }
                         for question in theme.questions
                     ],
@@ -92,18 +95,31 @@ def create_app(workspace: str | Path) -> Flask:
             ],
         }
 
+    def images_payload() -> list[dict]:
+        return [
+            {"id": image.id, "label": image.label}
+            for image in library.images
+        ]
+
+    def _known() -> tuple[set[str], set[str]]:
+        return (
+            {variant.id for track in library.tracks for variant in track.variants},
+            {image.id for image in library.images},
+        )
+
     @app.get("/api/state")
     def state():
-        known = {variant.id for track in library.tracks for variant in track.variants}
+        variants, images = _known()
         return jsonify({
             "library": library_payload(),
+            "images": images_payload(),
             "pack": pack_payload(),
             "presets": [
                 {"name": name, "label": preset.label, "hint": preset.hint}
                 for name, preset in presets.PRESETS.items()
             ],
             "prices": DEFAULT_PRICES,
-            "problems": pack.problems(known),
+            "problems": pack.problems(variants, images),
             "workspace": str(root),
         })
 
@@ -142,6 +158,48 @@ def create_app(workspace: str | Path) -> Flask:
             return {"added": added}
 
         return jsonify(jobs.start("Загрузка треков", len(staged), work).as_dict())
+
+    @app.post("/api/images")
+    def import_images():
+        uploads = [
+            item for item in request.files.getlist("files")
+            if item.filename and Path(item.filename).suffix.lower() in IMAGE_SUFFIXES
+        ]
+        if not uploads:
+            return jsonify({"error": "Не выбрано ни одной картинки"}), 400
+
+        added = []
+        inbox = root / ".inbox"
+        inbox.mkdir(exist_ok=True)
+        with lock:
+            for item in uploads:
+                temporary = inbox / item.filename
+                item.save(temporary)
+                try:
+                    image = library.add_image(temporary, label=Path(item.filename).stem)
+                    added.append({"id": image.id, "label": image.label})
+                finally:
+                    temporary.unlink(missing_ok=True)
+
+        return jsonify({"added": added})
+
+    @app.delete("/api/images/<image_id>")
+    def delete_image(image_id: str):
+        with lock:
+            try:
+                library.remove_image(image_id)
+            except KeyError as error:
+                return jsonify({"error": str(error)}), 404
+            _drop_missing_questions()
+        return jsonify({"ok": True})
+
+    @app.get("/media/image/<image_id>")
+    def media_image(image_id: str):
+        try:
+            image = library.image(image_id)
+        except KeyError:
+            return jsonify({"error": "нет такой картинки"}), 404
+        return send_file(library.image_path(image), conditional=True)
 
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id: str):
@@ -228,6 +286,8 @@ def create_app(workspace: str | Path) -> Flask:
                     answer=item.get("answer", ""),
                     answer_variant_id=item.get("answerVariantId") or None,
                     comment=item.get("comment", ""),
+                    image_id=item.get("imageId") or None,
+                    image_when=item.get("imageWhen") or "answer",
                 ))
             themes.append(Theme(title=theme.get("title", ""), questions=questions))
 
@@ -240,18 +300,20 @@ def create_app(workspace: str | Path) -> Flask:
             )
             pack.save(pack_path)
 
-        known = {variant.id for track in library.tracks for variant in track.variants}
-        return jsonify({"pack": pack_payload(), "problems": pack.problems(known)})
+        variants, images = _known()
+        return jsonify({"pack": pack_payload(), "problems": pack.problems(variants, images)})
 
     def _drop_missing_questions() -> None:
-        """Убрать из пака ссылки на исчезнувшие заготовки, чтобы игра не ломалась."""
-        known = {variant.id for track in library.tracks for variant in track.variants}
+        """Убрать из пака ссылки на исчезнувшие файлы, чтобы игра не ломалась."""
+        variants, images = _known()
         for theme in pack.themes:
             for question in theme.questions:
-                if question.variant_id not in known:
+                if question.variant_id not in variants:
                     question.variant_id = ""
-                if question.answer_variant_id and question.answer_variant_id not in known:
+                if question.answer_variant_id and question.answer_variant_id not in variants:
                     question.answer_variant_id = None
+                if question.image_id and question.image_id not in images:
+                    question.image_id = None
         pack.save(pack_path)
 
     # ------------------------------------------------------------- экспорт

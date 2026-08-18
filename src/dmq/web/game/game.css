@@ -120,6 +120,13 @@ kbd {
   border-radius: 5px; padding: 1px 6px; font-size: 12px; font-family: inherit;
 }
 
+.admin-picture { display: flex; align-items: center; gap: 12px; margin: 14px 0 4px; }
+.admin-picture img {
+  width: 96px; height: 96px; object-fit: cover;
+  border-radius: 10px; border: 1px solid var(--line);
+}
+.admin-picture .hint { margin: 0; }
+
 /* ---------- ползунок плеера ---------- */
 
 .seek {
@@ -169,5 +176,10 @@ kbd {
 .stage-scores .team { flex: 0 1 240px; min-width: 150px; text-align: center; }
 .stage-scores .team .name { justify-content: center; font-size: clamp(12px, 1.3vw, 20px); }
 .stage-scores .team .score { font-size: clamp(26px, 3.4vw, 54px); }
+
+.stage-picture {
+  max-width: min(680px, 70vw); max-height: 46vh;
+  object-fit: contain; border-radius: 14px; box-shadow: var(--shadow);
+}
 
 .stage .placeholder { color: var(--muted); font-size: clamp(16px, 2vw, 28px); }

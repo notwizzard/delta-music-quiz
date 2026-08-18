@@ -81,3 +81,29 @@ def tracks(tmp_path_factory) -> dict[str, tuple[Path, float]]:
         "beta": (make_track(folder / "beta.wav", 90, 196.00), 90.0),       # G
         "gamma": (make_track(folder / "gamma.wav", 140, 220.00), 140.0),   # A
     }
+
+
+@pytest.fixture(scope="session")
+def pictures(tmp_path_factory) -> dict[str, Path]:
+    """Две картинки: с прозрачностью и без.
+
+    Формат упаковки выбирается по наличию альфа-канала, поэтому нужны обе.
+    Рисуем их через ffmpeg — он и так обязательная зависимость проекта.
+    """
+    import subprocess
+
+    folder = tmp_path_factory.mktemp("pictures")
+    transparent = folder / "cover.png"
+    opaque = folder / "photo.jpg"
+
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+         "-i", "color=c=red@0.5:s=1800x1200,format=rgba", "-frames:v", "1", str(transparent)],
+        check=True,
+    )
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+         "-i", "color=c=blue:s=1800x1200", "-frames:v", "1", str(opaque)],
+        check=True,
+    )
+    return {"transparent": transparent, "opaque": opaque}

@@ -8,6 +8,7 @@
         pack.json        собранная игра
         sources/         оригиналы, как их принесли
         renders/         преобразованные заготовки
+        images/          картинки к вопросам
         exports/         готовые game.html
 
 Смысл разделения: оригинал загружается и анализируется один раз, а заготовок из
@@ -52,6 +53,20 @@ class Variant:
 
 
 @dataclass
+class Image:
+    """Картинка к вопросу — обложка, фото, что угодно.
+
+    Живёт отдельно от треков: одну и ту же обложку часто хочется поставить
+    сразу нескольким вопросам, да и привязки к конкретному звуку у неё нет.
+    """
+
+    id: str
+    filename: str
+    """Путь относительно папки images/."""
+    label: str = ""
+
+
+@dataclass
 class Track:
     """Исходный трек и всё, что из него сделали."""
 
@@ -80,10 +95,12 @@ class Library:
         self.root = Path(root)
         self.sources_dir = self.root / "sources"
         self.renders_dir = self.root / "renders"
+        self.images_dir = self.root / "images"
         self.exports_dir = self.root / "exports"
-        for folder in (self.sources_dir, self.renders_dir, self.exports_dir):
+        for folder in (self.sources_dir, self.renders_dir, self.images_dir, self.exports_dir):
             folder.mkdir(parents=True, exist_ok=True)
         self.tracks: list[Track] = []
+        self.images: list[Image] = []
         self.load()
 
     # --- диск -------------------------------------------------------------
@@ -95,15 +112,22 @@ class Library:
     def load(self) -> None:
         if not self.index_path.exists():
             self.tracks = []
+            self.images = []
             return
         raw = json.loads(self.index_path.read_text(encoding="utf-8"))
         self.tracks = [
             Track(**{**item, "variants": [Variant(**v) for v in item.get("variants", [])]})
             for item in raw.get("tracks", [])
         ]
+        # Картинки появились позже треков, поэтому старые файлы их просто не содержат.
+        self.images = [Image(**item) for item in raw.get("images", [])]
 
     def save(self) -> None:
-        payload = {"version": 1, "tracks": [asdict(track) for track in self.tracks]}
+        payload = {
+            "version": 2,
+            "tracks": [asdict(track) for track in self.tracks],
+            "images": [asdict(image) for image in self.images],
+        }
         self.index_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
@@ -130,6 +154,15 @@ class Library:
 
     def source_path(self, track: Track) -> Path:
         return self.sources_dir / track.filename
+
+    def image(self, image_id: str) -> Image:
+        for image in self.images:
+            if image.id == image_id:
+                return image
+        raise KeyError(f"Картинка {image_id!r} не найдена")
+
+    def image_path(self, image: Image) -> Path:
+        return self.images_dir / image.filename
 
     # --- изменение --------------------------------------------------------
 
@@ -184,6 +217,23 @@ class Library:
         for variant in track.variants:
             self.path_of(variant).unlink(missing_ok=True)
         self.tracks.remove(track)
+        self.save()
+
+    def add_image(self, path: str | Path, label: str = "") -> Image:
+        """Положить картинку в фонотеку. Ничего не пережимаем — это делает экспорт."""
+        source = Path(path)
+        stored_name = f"{new_id()}{source.suffix.lower()}"
+        shutil.copy2(source, self.images_dir / stored_name)
+
+        image = Image(id=new_id(), filename=stored_name, label=label or source.stem)
+        self.images.append(image)
+        self.save()
+        return image
+
+    def remove_image(self, image_id: str) -> None:
+        image = self.image(image_id)
+        self.image_path(image).unlink(missing_ok=True)
+        self.images.remove(image)
         self.save()
 
     def remove_variant(self, variant_id: str) -> None:

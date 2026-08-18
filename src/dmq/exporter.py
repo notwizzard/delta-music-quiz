@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,6 +27,14 @@ WEB_DIR = Path(__file__).resolve().parent / "web" / "game"
 
 EXPORT_BITRATE = "96k"
 """Битрейт упаковки. Моно 96k на слух неотличимо для угадайки и втрое легче исходника."""
+
+IMAGE_MAX_WIDTH = 1400
+"""Во сколько пикселей ужимать картинки. Больше проектору всё равно не нужно."""
+
+IMAGE_QUALITY = 4
+"""Качество JPEG в шкале ffmpeg: 2 — почти без потерь, 31 — мыло."""
+
+_ALPHA_PIXEL_FORMATS = ("rgba", "bgra", "argb", "abgr", "ya", "yuva", "pal8")
 
 
 class ExportError(RuntimeError):
@@ -73,9 +82,56 @@ def _encode_clip(source: Path, cache: dict[Path, str]) -> str:
     return encoded
 
 
+def _has_transparency(source: Path) -> bool:
+    """Есть ли у картинки прозрачность — от этого зависит формат упаковки."""
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=pix_fmt", "-of", "csv=p=0", str(source)],
+        capture_output=True, text=True,
+    )
+    pixel_format = probe.stdout.strip().lower()
+    return any(marker in pixel_format for marker in _ALPHA_PIXEL_FORMATS)
+
+
+def _encode_image(source: Path, cache: dict[Path, str]) -> str:
+    """Ужать картинку и вернуть готовый data-URI.
+
+    Прозрачные картинки уходят в PNG, остальные — в JPEG: он в разы легче, а
+    для обложек и фотографий разницы на глаз нет. WebP был бы лучше обоих, но
+    его поддержка есть не в каждой сборке ffmpeg, а зависеть от неё не хочется.
+    """
+    if source in cache:
+        return cache[source]
+    if not source.exists():
+        raise ExportError(f"Пропал файл картинки: {source.name}")
+
+    transparent = _has_transparency(source)
+    suffix, codec, mime = (".png", "png", "image/png") if transparent else (".jpg", "mjpeg", "image/jpeg")
+
+    with au.tempdir() as tmp:
+        compressed = tmp / f"image{suffix}"
+        command = [
+            "ffmpeg", "-v", "error", "-y",
+            "-i", str(source),
+            "-vf", f"scale='min({IMAGE_MAX_WIDTH},iw)':-2",
+            "-frames:v", "1",
+            "-c:v", codec,
+        ]
+        if not transparent:
+            command += ["-q:v", str(IMAGE_QUALITY)]
+        command.append(str(compressed))
+
+        au.run(command)
+        encoded = base64.b64encode(compressed.read_bytes()).decode("ascii")
+
+    cache[source] = f"data:{mime};base64,{encoded}"
+    return cache[source]
+
+
 def build_payload(pack: Pack, library: Library) -> tuple[dict, int]:
     """Превратить пак со ссылками в самодостаточные данные со звуком внутри."""
     cache: dict[Path, str] = {}
+    image_cache: dict[Path, str] = {}
     themes = []
 
     for theme in pack.themes:
@@ -91,6 +147,11 @@ def build_payload(pack: Pack, library: Library) -> tuple[dict, int]:
                 "audioKey": question.variant_id,
                 "audio": _encode_clip(audio_path, cache),
             }
+
+            if question.image_id:
+                image = library.image(question.image_id)
+                entry["image"] = _encode_image(library.image_path(image), image_cache)
+                entry["imageWhen"] = question.image_when
 
             if question.answer_variant_id:
                 _, answer_variant = library.variant(question.answer_variant_id)
@@ -113,7 +174,7 @@ def build_payload(pack: Pack, library: Library) -> tuple[dict, int]:
 def export(pack: Pack, library: Library, destination: str | Path) -> ExportResult:
     """Собрать игру в один файл. Перед сборкой пак проверяется на дыры."""
     known = {variant.id for track in library.tracks for variant in track.variants}
-    problems = pack.problems(known)
+    problems = pack.problems(known, {image.id for image in library.images})
     if problems:
         raise ExportError("Игра пока не готова:\n— " + "\n— ".join(problems))
 
