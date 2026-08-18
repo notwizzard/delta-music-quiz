@@ -37,6 +37,22 @@ def create_app(workspace: str | Path) -> Flask:
 
     # ------------------------------------------------------------- страница
 
+    @app.errorhandler(Exception)
+    def as_json(error):
+        """Отвечать на запросы к API всегда в JSON, даже когда что-то упало.
+
+        Интерфейс студии разбирает каждый ответ как JSON, и стандартная
+        HTML-страница ошибки Flask превращается для него в невнятное «неожиданный
+        символ» вместо понятного текста.
+        """
+        code = getattr(error, "code", 500)
+        if not request.path.startswith(("/api/", "/media/")):
+            raise error
+        if code == 500:
+            app.logger.exception("Ошибка в %s", request.path)
+            return jsonify({"error": "Что-то пошло не так внутри студии"}), 500
+        return jsonify({"error": getattr(error, "description", str(error))}), code
+
     @app.get("/")
     def index():
         return send_from_directory(app.template_folder, "studio.html")
@@ -209,7 +225,10 @@ def create_app(workspace: str | Path) -> Flask:
     @app.delete("/api/tracks/<track_id>")
     def delete_track(track_id: str):
         with lock:
-            library.remove_track(track_id)
+            try:
+                library.remove_track(track_id)
+            except KeyError as error:
+                return jsonify({"error": str(error)}), 404
             _drop_missing_questions()
         return jsonify({"ok": True})
 
@@ -257,6 +276,8 @@ def create_app(workspace: str | Path) -> Flask:
         with lock:
             try:
                 library.remove_variant(variant_id)
+            except KeyError as error:
+                return jsonify({"error": str(error)}), 404
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             _drop_missing_questions()

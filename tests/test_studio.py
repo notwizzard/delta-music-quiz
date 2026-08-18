@@ -325,3 +325,53 @@ def test_deleting_picture_clears_it_from_the_pack(client, tracks, pictures):
     assert state["pack"]["themes"][0]["questions"][0]["imageId"] is None
     # Пропавшая картинка не должна мешать собрать игру — она была необязательной.
     assert state["problems"] == []
+
+
+# --- ошибки API -------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("delete", "/api/tracks/nosuchid"),
+        ("delete", "/api/variants/nosuchid"),
+        ("delete", "/api/images/nosuchid"),
+        ("get", "/api/jobs/nosuchid"),
+        ("get", "/media/nosuchid"),
+        ("get", "/media/image/nosuchid"),
+        ("get", "/api/nosuchroute"),
+    ],
+)
+def test_api_errors_are_json_not_html(client, method, path):
+    """Интерфейс студии разбирает любой ответ как JSON.
+
+    Стандартная HTML-страница ошибки Flask превращается для него в невнятное
+    «неожиданный символ» вместо понятного текста, поэтому API обязан отвечать
+    JSON даже на заведомо неправильные запросы.
+    """
+    response = getattr(client, method)(path)
+    assert response.status_code in (404, 405)
+    assert response.is_json, response.data[:80]
+    assert "error" in response.get_json()
+
+
+def test_deleting_missing_things_does_not_crash(client, tracks):
+    """Двойной клик по «Удалить» или вторая вкладка студии не должны ловить 500."""
+    upload(client, tracks, ["alpha"])
+    library = client.get("/api/state").get_json()["library"]
+    track_id = library[0]["id"]
+
+    assert client.delete(f"/api/tracks/{track_id}").status_code == 200
+    repeated = client.delete(f"/api/tracks/{track_id}")
+    assert repeated.status_code == 404
+    assert repeated.is_json
+
+
+def test_original_cannot_be_deleted_alone(client, tracks):
+    """Оригинал удаляется только вместе с треком, иначе заготовки осиротеют."""
+    upload(client, tracks, ["alpha"])
+    library = client.get("/api/state").get_json()["library"]
+    original = next(v for v in library[0]["variants"] if v["kind"] == "source")
+
+    response = client.delete(f"/api/variants/{original['id']}")
+    assert response.status_code == 400
+    assert response.is_json
