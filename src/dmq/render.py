@@ -18,11 +18,33 @@ DEFAULT_CLIP = 40.0
 """
 
 
+MIN_CLIP = 1.0
+"""Короче секунды фрагмент делать бессмысленно."""
+
+
 def _clip(library: Library, track: Track, start: float | None, length: float | None):
-    """Вырезать фрагмент трека. По умолчанию — с самого энергичного места."""
-    audio = au.load(library.source_path(track))
+    """Вырезать фрагмент трека. По умолчанию — с самого энергичного места.
+
+    Важно, что вырезается именно кусок оригинала, и только потом к нему
+    применяется преобразование. Поэтому «задом наперёд, с 0:55, длина 40» — это
+    отрезок 0:55…1:35, проигранный назад, а не вся песня наоборот с обрезкой.
+    """
+    duration = track.duration
     begin = track.hook if start is None else max(0.0, float(start))
-    span = min(float(length or DEFAULT_CLIP), max(track.duration - begin, 1.0))
+
+    # Без этой проверки просьба начать за пределами трека молча давала секунду
+    # тишины: вырезание добивает нехватку нулями, и человек получал немой вопрос.
+    if begin >= duration - MIN_CLIP:
+        raise ValueError(
+            f"Начало {_stamp(begin)} выходит за пределы трека — он длится {_stamp(duration)}"
+        )
+
+    wanted = float(length) if length else DEFAULT_CLIP
+    if wanted < MIN_CLIP:
+        raise ValueError(f"Длина куска должна быть хотя бы {MIN_CLIP:.0f} секунда")
+
+    span = min(wanted, duration - begin)
+    audio = au.load(library.source_path(track))
     return au.fade(au.slice_seconds(audio, begin, span)), begin, span
 
 

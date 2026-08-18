@@ -177,3 +177,102 @@ def test_bpm_folding_against_reference():
     assert mx._fold_bpm(85.0, 170.0) == pytest.approx(170.0)
     assert mx._fold_bpm(170.0, 85.0) == pytest.approx(85.0)
     assert mx._fold_bpm(128.0, 130.0) == pytest.approx(128.0)
+
+
+# --- диапазоны фрагмента -----------------------------------------------------
+
+def _chirp(path, duration=60.0, low=200.0, high=2000.0):
+    """Трек, у которого частота линейно растёт со временем.
+
+    По мгновенной частоте однозначно понятно, какая секунда оригинала звучит, —
+    это и позволяет проверить, какой участок попал в заготовку и в какую сторону.
+    """
+    import soundfile as sf
+
+    t = np.linspace(0, duration, int(SR * duration), endpoint=False)
+    phase = 2 * np.pi * (low * t + (high - low) / (2 * duration) * t ** 2)
+    wave = (np.sin(phase) * 0.5).astype(np.float32)
+    sf.write(str(path), np.stack([wave, wave]).T, SR)
+    return lambda hz: (hz - low) * duration / (high - low)
+
+
+def _dominant_hz(audio, at, window=0.5):
+    mono = au.to_mono(audio)
+    index, half = int(at * SR), int(window * SR / 2)
+    segment = mono[max(0, index - half): index + half]
+    spectrum = np.abs(np.fft.rfft(segment * np.hanning(segment.size)))
+    return float(np.fft.rfftfreq(segment.size, 1 / SR)[np.argmax(spectrum)])
+
+
+@pytest.fixture()
+def chirp_library(tmp_path):
+    from dmq.library import Library
+
+    source = tmp_path / "chirp.wav"
+    second_of = _chirp(source)
+    library = Library(tmp_path / "workspace")
+    return library, library.add_track(source, "Свисток"), second_of
+
+
+def test_transform_applies_to_the_chosen_fragment_only(chirp_library):
+    """Сначала вырезается кусок оригинала, и только потом он разворачивается.
+
+    Если бы разворачивалась вся песня, а кусок брался уже из неё, то отрезок
+    с 25-й по 35-ю секунду попал бы вместо запрошенного 25…35 в конец записи.
+    """
+    from dmq import render
+
+    library, track, second_of = chirp_library
+    variant = render.render_preset(library, track.id, "reverse", start=25, length=10)
+    audio = au.load(library.path_of(variant))
+
+    assert au.duration(audio) == pytest.approx(10, abs=0.2)
+    assert second_of(_dominant_hz(audio, 0.6)) == pytest.approx(34.5, abs=1.5)
+    assert second_of(_dominant_hz(audio, au.duration(audio) - 0.6)) == pytest.approx(25.5, abs=1.5)
+
+
+def test_plain_fragment_keeps_its_direction(chirp_library):
+    from dmq import render
+
+    library, track, second_of = chirp_library
+    audio = au.load(library.path_of(render.render_clip(library, track.id, start=25, length=10)))
+
+    assert second_of(_dominant_hz(audio, 0.6)) == pytest.approx(25.5, abs=1.5)
+    assert second_of(_dominant_hz(audio, au.duration(audio) - 0.6)) == pytest.approx(34.5, abs=1.5)
+
+
+def test_length_is_measured_on_the_source(chirp_library):
+    """Длина задаётся по оригиналу: ускорение делает заготовку короче."""
+    from dmq import render
+
+    library, track, _ = chirp_library
+    fast = au.load(library.path_of(render.render_preset(library, track.id, "speed_150", start=0, length=30)))
+    slow = au.load(library.path_of(render.render_preset(library, track.id, "slow_200", start=0, length=30)))
+
+    assert au.duration(fast) == pytest.approx(20, abs=0.4)
+    assert au.duration(slow) == pytest.approx(60, abs=0.6)
+
+
+def test_fragment_is_trimmed_to_what_is_left(chirp_library):
+    from dmq import render
+
+    library, track, _ = chirp_library
+    variant = render.render_preset(library, track.id, "reverse", start=45, length=40)
+    assert au.duration(au.load(library.path_of(variant))) == pytest.approx(15, abs=0.3)
+
+
+def test_start_beyond_the_track_is_refused(chirp_library):
+    """Раньше это молча давало секунду тишины — немой вопрос в игре."""
+    from dmq import render
+
+    library, track, _ = chirp_library
+    with pytest.raises(ValueError, match="выходит за пределы"):
+        render.render_preset(library, track.id, "reverse", start=200, length=40)
+
+
+def test_too_short_fragment_is_refused(chirp_library):
+    from dmq import render
+
+    library, track, _ = chirp_library
+    with pytest.raises(ValueError, match="хотя бы"):
+        render.render_preset(library, track.id, "reverse", start=10, length=0.2)
